@@ -10,7 +10,7 @@ from collections import namedtuple, defaultdict
 #from functools import partial
 #print = partial(print, flush=True)
 
-version = "sunfish 2023"
+version = "Sunfish with forced capture"
 
 ###############################################################################
 # Piece-Square tables. Tune these to change sunfish's behaviour
@@ -149,8 +149,78 @@ class Position(namedtuple("Position", "board score wc bc ep kp")):
     ep - the en passant square
     kp - the king passant square
     """
-
+    
+    def in_check(self):
+        # Checks if current position exposes our king to a check
+        board = self.board
+        
+        king_sq = board.index('K')
+        
+        # Checked by pawn
+        for step in (S+W, S+E):
+            if board[king_sq + step] == 'p':
+                return True
+            
+        # Checked by knight
+        for step in directions['N']:
+            if board[king_sq + step] == 'n':
+                return True
+        
+        # Checked on Diag
+        for step in directions['B']:
+            for i in count(king_sq + step, step):
+                loc = board[i]
+                if loc.isspace():
+                    break
+                if loc != '.':
+                    if loc in 'bq':
+                        return True
+                    break
+        
+        # Check on Straight
+        for step in directions['R']:
+            for i in count(king_sq + step, step):
+                loc = board[i]
+                if loc.isspace():
+                    break
+                if loc != '.':
+                    if loc in 'rq':
+                        return True
+                    break
+        
+        # Checked by King, if our King itself captures
+        for step in directions['K']:
+            if board[king_sq + step] == 'k':
+                return True
+        
+        return False
+    
+    def check_legality(self, move):
+        updated_position = self.move(move)
+        our_position = updated_position.rotate(nullmove=True)
+        return our_position.in_check()
+    
+    def is_capture(self, move):
+        x, y, _ = move
+        our_piece = self.board[x]
+        target_piece = self.board[y]
+        if target_piece.islower():
+            return True
+        # En-passant captures
+        if our_piece == 'P' and y == self.ep:
+            return True
+        return False
+    
     def gen_moves(self):
+        pseudo_legal_moves = list(self.gen_moves_psuedo_legal())
+        legal_moves = [move for move in pseudo_legal_moves if not self.check_legality(move)]
+        capture_moves = [move for move in legal_moves if self.is_capture(move)]
+        moves = capture_moves if capture_moves else legal_moves
+        for move in moves:
+            yield move
+        
+    
+    def gen_moves_psuedo_legal(self):
         # For each of our pieces, iterate through each possible 'ray' of moves,
         # as defined in the 'directions' map. The rays are broken e.g. by
         # captures or immediately in case of pieces such as knights.
