@@ -1,5 +1,6 @@
 #!/usr/bin/env pypy3
 
+import time, math
 from itertools import count
 from collections import namedtuple, defaultdict
 
@@ -492,9 +493,7 @@ def render_move(move, white_pov):
     return render(i) + render(j) + move.prom.lower()
 
 # minifier-hide start
-import sys
-from tools import uci
-
+import sys, uci
 uci.run(sys.modules[__name__])
 sys.exit()
 # minifier-hide end
