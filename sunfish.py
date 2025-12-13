@@ -140,7 +140,7 @@ opt_ranges = dict(
 Move = namedtuple("Move", "i j prom")
 
 
-class Position(namedtuple("Position", "board score wc bc ep kp")):
+class Position(namedtuple("Position", "board score wc bc ep kp mc")):
     """A state of a chess game
     board -- a 120 char representation of the board
     score -- the board evaluation
@@ -148,6 +148,7 @@ class Position(namedtuple("Position", "board score wc bc ep kp")):
     bc -- the opponent castling rights, [west/king side, east/queen side]
     ep - the en passant square
     kp - the king passant square
+    mc - move count(50 move rule)
     """
     
     def in_check(self):
@@ -275,6 +276,7 @@ class Position(namedtuple("Position", "board score wc bc ep kp")):
         # Copy variables and reset ep and kp
         board = self.board
         wc, bc, ep, kp = self.wc, self.bc, 0, 0
+        mc = self.mc + 1
         score = self.score + self.value(move)
         # Actual move
         board = put(board, j, board[i])
@@ -291,8 +293,12 @@ class Position(namedtuple("Position", "board score wc bc ep kp")):
                 kp = (i + j) // 2
                 board = put(board, A1 if j < i else H1, ".")
                 board = put(board, kp, "R")
+
+        if self.is_capture(move) and p != "P":
+            mc = 0
         # Pawn promotion, double move and en passant capture
         if p == "P":
+            mc = 0
             if A8 <= j <= H8:
                 board = put(board, j, prom)
             if j - i == 2 * N:
@@ -300,7 +306,7 @@ class Position(namedtuple("Position", "board score wc bc ep kp")):
             if j == self.ep:
                 board = put(board, j + S, ".")
         # We rotate the returned position, so it's ready for the next player
-        return Position(board, score, wc, bc, ep, kp).rotate()
+        return Position(board, score, wc, bc, ep, kp, mc).rotate()
 
     def value(self, move):
         i, j, prom = move
@@ -359,6 +365,10 @@ class Searcher:
         # or able to capture the opponent king.
         if pos.score <= -MATE_LOWER:
             return -MATE_UPPER
+
+        # cut off branch on 50 move rule
+        if pos.mc >= 50:
+            return 0
 
         # Look in the table if we have already searched this position before.
         # We also need to be sure, that the stored search was over the same
