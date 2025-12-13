@@ -224,7 +224,10 @@ def run(sunfish_module, startpos):
                         think = int(movetime) / 1000
 
                     elif args[1] == "wtime":
-                        wtime, btime, winc, binc = [int(a) / 1000 for a in args[2::2]]
+                        times = [int(a) / 1000 for a in args[2::2]]
+                        while len(times) < 4:
+                            times.append(0)
+                        wtime, btime, winc, binc = times
                         # we always consider ourselves white, but uci doesn't
                         if len(hist) % 2 == 0:
                             wtime, winc = btime, binc
