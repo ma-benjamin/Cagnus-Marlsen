@@ -1,92 +1,5 @@
-![Sunfish logo](https://raw.github.com/thomasahle/sunfish/master/docs/logo/sunfish_large.png)
-
 ## Introduction
-Sunfish is a simple, but strong chess engine, written in Python. With its simple [UCI](http://wbec-ridderkerk.nl/html/UCIProtocol.html) interface, and removing comments and whitespace, it takes up just 131 lines of code! (`build/clean.sh sunfish.py | wc -l`).
-Yet [it plays at ratings above 2000 at Lichess](https://lichess.org/@/sunfish-engine).
-
-Because Sunfish is small and strives to be simple, the code provides a great platform for experimenting. People have used it for testing parallel search algorithms, experimenting with evaluation functions, and developing deep learning chess programs. Fork it today and see what you can do!
-
-# Play against sunfish!
-
-The simplest way to run sufish is through the "fancy" terminal interface:
-<pre>
-$ <b>tools/fancy.py -cmd ./sunfish.py</b>
-Playing against sunfish 2023.
-Do you want to be white or black? <b>black</b>
-  1 ♖ ♘ ♗ ♔ ♕ ♗ ♘ ♖
-  2 ♙ ♙ ♙ ♙ ♙ ♙ ♙ ♙
-  3
-  4
-  5
-  6
-  7 ♟ ♟ ♟ ♟ ♟ ♟ ♟ ♟
-  8 ♜ ♞ ♝ ♚ ♛ ♝ ♞ ♜
-    h g f e d c b a
-
-Score: 23, nodes: 11752, nps: 13812, time: 0.9
- My move: d4
-  1 ♖ ♘ ♗ ♔ ♕ ♗ ♘ ♖
-  2 ♙ ♙ ♙ ♙   ♙ ♙ ♙
-  3
-  4         ♙
-  5
-  6
-  7 ♟ ♟ ♟ ♟ ♟ ♟ ♟ ♟
-  8 ♜ ♞ ♝ ♚ ♛ ♝ ♞ ♜
-    h g f e d c b a
-
-Your move (e.g. c6 or g8h6): <b>Nf6</b>
-</pre>
-
-### Notation
-
-The terminal interface uses algebraic notation for inputting moves. Here is a brief overview of how it works:
-From white's perspective, the columns are labeled a-h from left to right and the rows are labeled 1-8 from the bottom to the top.
-Each square is named with its respective letter than number (eg. a2, c3, h8).
-A move is communicated by the first letter of the moving piece followed by the destination square (the P for pawn moves is omitted and N is used for knights).
-If more than one of the same piece can move to a square, specify the file of the moving piece. If that is still ambiguous, specify the column.
-
-In order to use the terminal interface, the notation used must be of a specific format, otherwise the entered move will not be read correctly.
-An "x" is sometimes used to denote a capture, but must be omitted (eg. Bd4 not Bxd4).
-Do not use a "+" to denote a check (eg. Bf7 not Bf7+).
-Do not use an "=" to denote pawn promotion (eg. e8Q not e8=Q)
-To denote a pawn capture the required notation is starting file followed by the ending square (eg. gf4 not gf).
-Castling must be denoted with lowercase 'o's (eg. o-o and o-o-o).
-Specifying a file or columm must be after stating the piece (eg. Rae1 not aRe1).
-When notating en passant, the destination square should be the square the pawn ends up on, not th quare of the pawn that was captured (eg. ef6 not ef5).
-
-The terminal interface also supports explicit notation. This is where the source square is stated followed by the destination square (eg. e2e4).
-
-Note this requires the [python-chess](https://github.com/niklasf/python-chess/) package.
-For a true minimalist experience, first we can "pack" sunfish into a compressed executable (less than 3KB!) and run it directly:
-<pre>
-$ <b>build/pack.sh sunfish.py packed.sh</b>
-Total length: 2953
-$ <b>./packed.sh</b>
-<b>go wtime 1000 btime 1000 winc 1000 binc 1000</b>
-info depth 1 score cp 0 pv d2d4
-bestmove d2d4
-</pre>
-(See the [UCI specification](http://wbec-ridderkerk.nl/html/UCIProtocol.html) for the full set of commands.)
-
-### Playing with a graphical interface
-
-It is also possible to run Sunfish with a graphical interface, such as [PyChess](http://pychess.org) or [Arena](http://www.playwitharena.de).
-
-Finally you can [play sunfish now on Lichess](https://lichess.org/@/sunfish-engine) or play against [Recursing's Rust port](https://github.com/Recursing/sunfish_rs),
-also [on Lichess](https://lichess.org/@/sunfish_rs), which is about 100 ELO stronger.
-
-### NNUE version
-
-There is an experimental version using an [Efficiently updatable neural network](https://en.wikipedia.org/wiki/Efficiently_updatable_neural_network). You can test it using the fancy terminal interface as above:
-
-<pre>$ <b>tools/fancy.py -cmd "./sunfish_nnue.py nnue/models/tanh.pickle"</b>
-...
-</pre>
-
-In contrast to the large NNUE in say, Stockfish, this network is only 1207 bytes!
-That makes sure sunfish NNUE can still be packed into less than 4KB.
-Using NNUE, sunfish will play better positionally, but worse tactically, since the implementation is still not fast enough.
+A Python-based chess engine that plays standard chess with the added rule of forced captures. This engine is based on and extends from the Sunfish chess engine, with changes in the gen_move function to enfore the forced capture rule, and suppor the Xboard protocol. 
 
 # Features
 
@@ -95,29 +8,55 @@ Using NNUE, sunfish will play better positionally, but worse tactically, since t
 3. Efficiently updatedable evaluation function through [Piece Square Tables](https://www.chessprogramming.org/Piece-Square_Tables).
 4. Uses standard Python collections and data structures for clarity and efficiency.
 
-# Limitations
+Note: Original Sunfish readme is under sunfish_README.md.
 
-Sunfish supports all chess rules, except the 50 moves draw rule.
+# Modifications to Sunfish:
+### Forced capture variation
+We modified move generation to enforce a “forced capture” rule:
+1. Generate pseudo-legal moves.
+2. Filter out moves that leave the king in check to get legal moves.
+3. Then if any of those legal moves are captures (including en passant), only those capture moves are returned.
+4. Otherwise all legal moves are returned.
 
-There are many ways in which you may try to make Sunfish stronger. First you could change from a board representation to a mutable array and add a fast way to enumerate pieces. Then you could implement dedicated capture generation, check detection and check evasions. You could also move everything to bitboards, implement parts of the code in C or experiment with parallel search!
+### Fifty-move rule
+We modified the evaluation logic to enforce the fifty-move draw rule:
+1. Track the number of half-moves since the last pawn move or capture.
+2. Reset this counter to zero whenever a pawn is moved or a capture occurs.
+3. Increment the counter after every other move.
+4. If the counter reaches 100 half-moves (50 moves per side), the position is treated as a draw and evaluated with a score of 0.
 
-The other way to make Sunfish stronger is to give it more knowledge of chess. The current evaluation function only uses piece square tables - it doesn't even distinguish between midgame and endgame. You can also experiment with more pruning - currently only null move is done - and extensions - currently none are used. Finally Sunfish might benefit from a more advanced move ordering, MVV/LVA and SEE perhaps?
+### Threefold repetition
+We modified the search to detect threefold repetition and treat it as a draw:
+1. Each position is identified using a key consisting of the board state, castling rights, and en passant information.
+2. We store how many times each position appears along the current search path in a hash table.
+3. When making a move during search, the counter for the resulting position is incremented before searching deeper and decremented afterward.
+4. If a position is encountered three or more times during search, it is evaluated as a draw with a score of 0.
 
-An easy way to get a strong Sunfish is to run with with the [PyPy Just-In-Time intepreter](https://pypy.org/). In particular the python2.7 version of pypy gives a 250 ELO boost compared to the cpython (2 or 3) intepreters at fast time controls:
+# Running the Engine
+This chess engine is written in **Python** and runs using **PyPy3**.  
+It is connected to XBoard via **Polyglot (chess)**.
 
-    Rank Name                    Elo     +/-   Games   Score   Draws
-       1 pypy2.7 (7.1)           166      38     300   72.2%   19.7%
-       2 pypy3.6 (7.1)            47      35     300   56.7%   21.3%
-       3 python3.7               -97      36     300   36.3%   20.7%
-       4 python2.7              -109      35     300   34.8%   24.3%
+### Install PyPy3
 
+```
+sudo apt update
+sudo apt install pypy3
+```
 
-# Why Sunfish?
+### Assuming PolyGlot (chess) is installed.
 
-The name Sunfish actually refers to the [Pygmy Sunfish](http://en.wikipedia.org/wiki/Pygmy_sunfish), which is among the very few fish to start with the letters 'Py'. The use of a fish is in the spirit of great engines such as Stockfish, Zappa and Rybka.
+### Get absolute path by running:
+```
+pwd
+```
 
-In terms of Heritage, Sunfish borrows much more from [Micro-Max by Geert Muller](http://home.hccnet.nl/h.g.muller/max-src2.html) and [PyChess](http://pychess.org).
+### To run with Xboard (terminal):
+```
+xboard -fcp polyglot -fd /path/from/pwd
+```
 
-# License
-
-[GNU GPL v3](https://www.gnu.org/licenses/gpl-3.0.en.html)
+### To add engine to Xboard (GUI):
+```
+Engine Directory: /path/from/pwd
+Engine Command: polyglot
+```

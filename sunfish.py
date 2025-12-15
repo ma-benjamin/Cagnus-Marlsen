@@ -10,7 +10,7 @@ from collections import namedtuple, defaultdict
 #from functools import partial
 #print = partial(print, flush=True)
 
-version = "sunfish 2023"
+version = "Sunfish with forced capture"
 
 ###############################################################################
 # Piece-Square tables. Tune these to change sunfish's behaviour
@@ -140,7 +140,7 @@ opt_ranges = dict(
 Move = namedtuple("Move", "i j prom")
 
 
-class Position(namedtuple("Position", "board score wc bc ep kp")):
+class Position(namedtuple("Position", "board score wc bc ep kp mc")):
     """A state of a chess game
     board -- a 120 char representation of the board
     score -- the board evaluation
@@ -148,9 +148,83 @@ class Position(namedtuple("Position", "board score wc bc ep kp")):
     bc -- the opponent castling rights, [west/king side, east/queen side]
     ep - the en passant square
     kp - the king passant square
+    mc - move count(50 move rule)
     """
+    
+    def repetition_dict_key(self):
+        return (self.board, self.wc, self.bc, self.ep, self.kp)
 
+    def in_check(self):
+        # Checks if current position exposes our king to a check
+        board = self.board
+        
+        king_sq = board.index('K')
+        
+        # Checked by pawn
+        for step in (S+W, S+E):
+            if board[king_sq + step] == 'p':
+                return True
+            
+        # Checked by knight
+        for step in directions['N']:
+            if board[king_sq + step] == 'n':
+                return True
+        
+        # Checked on Diag
+        for step in directions['B']:
+            for i in count(king_sq + step, step):
+                loc = board[i]
+                if loc.isspace():
+                    break
+                if loc != '.':
+                    if loc in 'bq':
+                        return True
+                    break
+        
+        # Check on Straight
+        for step in directions['R']:
+            for i in count(king_sq + step, step):
+                loc = board[i]
+                if loc.isspace():
+                    break
+                if loc != '.':
+                    if loc in 'rq':
+                        return True
+                    break
+        
+        # Checked by King, if our King itself captures
+        for step in directions['K']:
+            if board[king_sq + step] == 'k':
+                return True
+        
+        return False
+    
+    def check_legality(self, move):
+        updated_position = self.move(move)
+        our_position = updated_position.rotate(nullmove=True)
+        return our_position.in_check()
+    
+    def is_capture(self, move):
+        x, y, _ = move
+        our_piece = self.board[x]
+        target_piece = self.board[y]
+        if target_piece.islower():
+            return True
+        # En-passant captures
+        if our_piece == 'P' and y == self.ep:
+            return True
+        return False
+    
     def gen_moves(self):
+        pseudo_legal_moves = list(self.gen_moves_psuedo_legal())
+        legal_moves = [move for move in pseudo_legal_moves if not self.check_legality(move)]
+        capture_moves = [move for move in legal_moves if self.is_capture(move)]
+        moves = capture_moves if capture_moves else legal_moves
+        for move in moves:
+            yield move
+        
+    
+    def gen_moves_psuedo_legal(self):
         # For each of our pieces, iterate through each possible 'ray' of moves,
         # as defined in the 'directions' map. The rays are broken e.g. by
         # captures or immediately in case of pieces such as knights.
@@ -196,6 +270,7 @@ class Position(namedtuple("Position", "board score wc bc ep kp")):
             self.board[::-1].swapcase(), -self.score, self.bc, self.wc,
             119 - self.ep if self.ep and not nullmove else 0,
             119 - self.kp if self.kp and not nullmove else 0,
+            self.mc,
         )
 
     def move(self, move):
@@ -205,6 +280,7 @@ class Position(namedtuple("Position", "board score wc bc ep kp")):
         # Copy variables and reset ep and kp
         board = self.board
         wc, bc, ep, kp = self.wc, self.bc, 0, 0
+        mc = self.mc + 1
         score = self.score + self.value(move)
         # Actual move
         board = put(board, j, board[i])
@@ -221,8 +297,12 @@ class Position(namedtuple("Position", "board score wc bc ep kp")):
                 kp = (i + j) // 2
                 board = put(board, A1 if j < i else H1, ".")
                 board = put(board, kp, "R")
+
+        if self.is_capture(move) and p != "P":
+            mc = 0
         # Pawn promotion, double move and en passant capture
         if p == "P":
+            mc = 0
             if A8 <= j <= H8:
                 board = put(board, j, prom)
             if j - i == 2 * N:
@@ -230,7 +310,7 @@ class Position(namedtuple("Position", "board score wc bc ep kp")):
             if j == self.ep:
                 board = put(board, j + S, ".")
         # We rotate the returned position, so it's ready for the next player
-        return Position(board, score, wc, bc, ep, kp).rotate()
+        return Position(board, score, wc, bc, ep, kp, mc).rotate()
 
     def value(self, move):
         i, j, prom = move
@@ -270,6 +350,7 @@ class Searcher:
         self.tp_move = {}
         self.history = set()
         self.nodes = 0
+        self.repetitions = defaultdict(int)
 
     def bound(self, pos, gamma, depth, can_null=True):
         """ Let s* be the "true" score of the sub-tree we are searching.
@@ -290,6 +371,10 @@ class Searcher:
         if pos.score <= -MATE_LOWER:
             return -MATE_UPPER
 
+        # cut off branch on 50 move (100 half-moves) rule
+        if pos.mc >= 100:
+            return 0
+
         # Look in the table if we have already searched this position before.
         # We also need to be sure, that the stored search was over the same
         # nodes as the current search.
@@ -300,7 +385,7 @@ class Searcher:
         # Let's not repeat positions. We don't chat
         # - at the root (can_null=False) since it is in history, but not a draw.
         # - at depth=0, since it would be expensive and break "futility pruning".
-        if can_null and depth > 0 and pos in self.history:
+        if can_null and self.repetitions[pos.repetition_dict_key()] >= 3:
             return 0
 
         # Generator of moves to search in order.
@@ -342,7 +427,11 @@ class Searcher:
             # We will search it again in the main loop below, but the tp will fix
             # things for us.
             if killer and pos.value(killer) >= val_lower:
-                yield killer, -self.bound(pos.move(killer), 1 - gamma, depth - 1)
+                dpos = pos.move(killer)
+                self.repetitions[dpos.repetition_dict_key()] += 1
+                score = -self.bound(dpos, 1 - gamma, depth - 1)
+                self.repetitions[dpos.repetition_dict_key()] -= 1
+                yield killer, score
 
             # Then all the other moves
             for val, move in sorted(((pos.value(m), m) for m in pos.gen_moves()), reverse=True):
@@ -360,8 +449,12 @@ class Searcher:
                     # We can also break, since we have ordered the moves by value,
                     # so it can't get any better than this.
                     break
-
-                yield move, -self.bound(pos.move(move), 1 - gamma, depth - 1)
+                
+                dpos = pos.move(move)
+                self.repetitions[dpos.repetition_dict_key()] += 1
+                score = -self.bound(dpos, 1 - gamma, depth - 1)
+                self.repetitions[dpos.repetition_dict_key()] -= 1
+                yield move, score
 
         # Run through the moves, shortcutting when possible
         best = -MATE_UPPER
@@ -409,6 +502,9 @@ class Searcher:
         """Iterative deepening MTD-bi search"""
         self.nodes = 0
         self.history = set(history)
+        self.repetitions.clear()
+        for p in history:
+            self.repetitions[p.repetition_dict_key()] += 1
         self.tp_score.clear()
 
         gamma = 0
@@ -445,7 +541,7 @@ def render(i):
     rank, fil = divmod(i - A1, 10)
     return chr(fil + ord("a")) + str(-rank + 1)
 
-hist = [Position(initial, 0, (True, True), (True, True), 0, 0)]
+hist = [Position(initial, 0, (True, True), (True, True), 0, 0, 0)]
 
 #input = raw_input
 
@@ -484,7 +580,7 @@ while True:
 
         start = time.time()
         move_str = None
-        for depth, gamma, score, move in Searcher().search(hist):
+        for depth, gamma, score, move in searcher.search(hist):
             # The only way we can be sure to have the real move in tp_move,
             # is if we have just failed high.
             if score >= gamma:
