@@ -151,6 +151,9 @@ class Position(namedtuple("Position", "board score wc bc ep kp mc")):
     mc - move count(50 move rule)
     """
     
+    def repetition_dict_key(self):
+        return (self.board, self.wc, self.bc, self.ep, self.kp)
+
     def in_check(self):
         # Checks if current position exposes our king to a check
         board = self.board
@@ -267,6 +270,7 @@ class Position(namedtuple("Position", "board score wc bc ep kp mc")):
             self.board[::-1].swapcase(), -self.score, self.bc, self.wc,
             119 - self.ep if self.ep and not nullmove else 0,
             119 - self.kp if self.kp and not nullmove else 0,
+            self.mc,
         )
 
     def move(self, move):
@@ -346,6 +350,7 @@ class Searcher:
         self.tp_move = {}
         self.history = set()
         self.nodes = 0
+        self.repetitions = defaultdict(int)
 
     def bound(self, pos, gamma, depth, can_null=True):
         """ Let s* be the "true" score of the sub-tree we are searching.
@@ -366,8 +371,8 @@ class Searcher:
         if pos.score <= -MATE_LOWER:
             return -MATE_UPPER
 
-        # cut off branch on 50 move rule
-        if pos.mc >= 50:
+        # cut off branch on 50 move (100 half-moves) rule
+        if pos.mc >= 100:
             return 0
 
         # Look in the table if we have already searched this position before.
@@ -380,7 +385,7 @@ class Searcher:
         # Let's not repeat positions. We don't chat
         # - at the root (can_null=False) since it is in history, but not a draw.
         # - at depth=0, since it would be expensive and break "futility pruning".
-        if can_null and depth > 0 and pos in self.history:
+        if can_null and self.repetitions[pos.repetition_dict_key()] >= 3:
             return 0
 
         # Generator of moves to search in order.
@@ -422,7 +427,11 @@ class Searcher:
             # We will search it again in the main loop below, but the tp will fix
             # things for us.
             if killer and pos.value(killer) >= val_lower:
-                yield killer, -self.bound(pos.move(killer), 1 - gamma, depth - 1)
+                dpos = pos.move(killer)
+                self.repetitions[dpos.repetition_dict_key()] += 1
+                score = -self.bound(dpos, 1 - gamma, depth - 1)
+                self.repetitions[dpos.repetition_dict_key()] -= 1
+                yield killer, score
 
             # Then all the other moves
             for val, move in sorted(((pos.value(m), m) for m in pos.gen_moves()), reverse=True):
@@ -440,8 +449,12 @@ class Searcher:
                     # We can also break, since we have ordered the moves by value,
                     # so it can't get any better than this.
                     break
-
-                yield move, -self.bound(pos.move(move), 1 - gamma, depth - 1)
+                
+                dpos = pos.move(move)
+                self.repetitions[dpos.repetition_dict_key()] += 1
+                score = -self.bound(dpos, 1 - gamma, depth - 1)
+                self.repetitions[dpos.repetition_dict_key()] -= 1
+                yield move, score
 
         # Run through the moves, shortcutting when possible
         best = -MATE_UPPER
@@ -489,6 +502,9 @@ class Searcher:
         """Iterative deepening MTD-bi search"""
         self.nodes = 0
         self.history = set(history)
+        self.repetitions.clear()
+        for p in history:
+            self.repetitions[p.repetition_dict_key()] += 1
         self.tp_score.clear()
 
         gamma = 0
@@ -525,7 +541,7 @@ def render(i):
     rank, fil = divmod(i - A1, 10)
     return chr(fil + ord("a")) + str(-rank + 1)
 
-hist = [Position(initial, 0, (True, True), (True, True), 0, 0)]
+hist = [Position(initial, 0, (True, True), (True, True), 0, 0, 0)]
 
 #input = raw_input
 
@@ -564,7 +580,7 @@ while True:
 
         start = time.time()
         move_str = None
-        for depth, gamma, score, move in Searcher().search(hist):
+        for depth, gamma, score, move in searcher.search(hist):
             # The only way we can be sure to have the real move in tp_move,
             # is if we have just failed high.
             if score >= gamma:
